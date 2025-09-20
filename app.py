@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 from sqlalchemy import create_engine
 import urllib.parse
+import altair as alt
 
 # -------------------------------
 # STREAMLIT UI
@@ -32,18 +33,50 @@ try:
     # Example chart
     if "violation" in df.columns:
         st.subheader("📊 Violations Count")
-        st.bar_chart(df["violation"].value_counts())
+        # Make sure this is **outside** the if
+        
+     # Prepare data
+    violation_counts = df["violation"].value_counts().reset_index()
+    violation_counts.columns = ["violation", "count"]
 
-    # -------------------------------
-    # ADVANCED INSIGHTS SECTION
-    # -------------------------------
+    # Assign colors based on count
+    def assign_color(count):
+        if count == 3:
+            return "skyblue"
+        elif count == 2:
+            return "lightgreen"
+        elif count == 1:
+            return "darkred"
+        else:
+            return "gray"  # default for other counts
+
+    violation_counts["color"] = violation_counts["count"].apply(assign_color)
+
+    bar = alt.Chart(violation_counts).mark_bar().encode(
+    x='count',
+    y=alt.Y('violation', sort='-x'),  # horizontal bars
+    color=alt.Color('color', scale=None)
+)
+    text = bar.mark_text(
+    align='left',        # align text to the left of label
+    baseline='middle',   # vertical center
+    dx=5                 # 5 pixels to the right of bar
+).encode(
+    text='violation'
+)
+    chart = (bar + text).properties(
+    width=600,
+    height=400
+)
+    st.altair_chart(chart)
+    
     st.header("📈 Advanced Insights")
 
     # Dropdown for queries
     query_option = st.selectbox(
         "Select a Query to Run",
         [
-          
+            "Top 10 Vehicle Numbers in Drug-Related Stops",
             "Vehicles Most Frequently Searched",
             "Driver Age Group with Highest Arrest Rate",
             "Gender Distribution of Drivers Stopped in Each Country",
@@ -54,19 +87,19 @@ try:
             "Violations Associated with Searches/Arrests",
             "Violations Common Among Younger Drivers (<25)",
             "Violations Rarely Resulting in Search/Arrest",
-            "Countries with Highest Drug-Related Stops",
             "Arrest Rate by Country & Violation",
             "Country with Most Stops Involving Searches",
-            "Yearly Breakdown of Stops & Arrests by Country"
+            "Yearly Breakdown of Stops & Arrests by Country",
+            "Top 5 Violations with Highest Arrest Rates"
         ]
     )
 
-    # Map each option to its SQL query
+    
     queries = {
-        "Top 10 Vehicle Numbers in Drug-Related Stops": """
-         SELECT CAST(vehicle_number AS CHAR) AS vehicle_number, COUNT(*) AS stop_count
+       "Top 10 Vehicle Numbers in Drug-Related Stops": """
+         SELECT vehicle_number, COUNT(*) AS stop_count
          FROM traffic_stops
-         WHERE violation LIKE '%drug%'
+         WHERE drugs_related_stop = 1
          GROUP BY vehicle_number
          ORDER BY stop_count DESC
          LIMIT 10;
@@ -128,17 +161,22 @@ try:
             ORDER BY total_searches DESC, total_arrests DESC;
         """,
         "Violations Common Among Younger Drivers (<25)": """
-            SELECT violation, COUNT(*) AS stop_count
-            FROM traffic_stops
-            WHERE driver_age < 25
-            GROUP BY violation
-            ORDER BY stop_count DESC;
+            SELECT 
+               COALESCE(violation, 'Unknown') AS violation,
+               COUNT(*) AS stop_count
+           FROM traffic_stops
+           WHERE driver_age < 25
+           GROUP BY violation
+           ORDER BY stop_count DESC;
         """,
         "Violations Rarely Resulting in Search/Arrest": """
-            SELECT violation 
-            FROM traffic_stops
-            GROUP BY violation
-            HAVING SUM(search_conducted) = 0 AND SUM(is_arrested) = 0;
+        SELECT COALESCE(violation, 'Unknown') AS violation,
+                SUM(search_conducted) AS total_searches,
+                SUM(is_arrested) AS total_arrests
+        FROM traffic_stops
+        GROUP BY violation
+        ORDER BY total_searches ASC, total_arrests ASC
+        LIMIT 10;
         """,
         "Countries with Highest Drug-Related Stops": """
             SELECT country_name, COUNT(*) AS drug_stops
@@ -168,7 +206,16 @@ try:
             FROM traffic_stops
             GROUP BY country_name, YEAR(stop_date)
             ORDER BY year, country_name;
+        """,
+        "Top 5 Violations with Highest Arrest Rates": """
+            SELECT violation, 
+               ROUND(SUM(is_arrested)/COUNT(*)*100, 2) AS arrest_rate
+            FROM traffic_stops
+            GROUP BY violation
+            ORDER BY arrest_rate DESC
+            LIMIT 5;
         """
+
     }
 
    
@@ -185,21 +232,21 @@ try:
 
 
 except Exception as e:
-    st.error(f"❌ Database connection failed: {e}")
-    st.info("But Streamlit is working fine ✅. Check your MySQL setup or table.")
+    st.error(f"Database connection failed: {e}")
+    st.info("But Streamlit is working fine . Check your MySQL setup or table.")
 except Exception as e:
-    st.error(f"❌ Database connection failed: {e}")
-    st.info("But Streamlit is working fine ✅. Check your MySQL setup or table.")
+    st.error(f" Database connection failed: {e}")
+    st.info("But Streamlit is working fine . Check your MySQL setup or table.")
 
 # ---------------------------
 # 🚔 Add New Police Log & Predict Outcome and Violation
 # ---------------------------
-import random  # make sure random is imported
+import random  
 
 st.markdown("---")
 st.title("🚔 Add New Police Log & Predict Outcome and Violation")
 
-# --- Form Inputs ---
+
 stop_date = st.date_input("Stop Date")
 stop_time = st.time_input("Stop Time")
 county_name = st.text_input("County Name")
@@ -212,19 +259,19 @@ drug_related = st.selectbox("Was it Drug Related?", ["Yes", "No"])
 stop_duration = st.selectbox("Stop Duration", ["0-15 Min", "16-30 Min", "30+ Min"])
 vehicle_number = st.text_input("Vehicle Number")
 
-# --- Prediction Button ---
+
 if st.button("Predict Stop Outcome & Violation"):
 
-    # --- Dummy Prediction Logic (replace with ML model if available) ---
+    
     predicted_violation = random.choice(["speeding", "signal violation", "DUI", "equipment violation"])
     predicted_outcome = random.choice(["warning", "citation", "arrest"])
 
-    # --- Prediction Summary ---
+    
     st.subheader("📝 Prediction Summary")
     st.markdown(f"- **Predicted Violation:** {predicted_violation}")
     st.markdown(f"- **Predicted Stop Outcome:** {predicted_outcome}")
 
-    # --- Narrative Summary ---
+    
     if search_conducted == "No":
         search_text = "No search was conducted"
     else:
